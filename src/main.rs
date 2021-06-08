@@ -45,7 +45,13 @@ fn main() {
     if let Err(e) = frames_into_video(&output_video, target_framerate) {
         error!("{:#?}", e);
     }
+    cleanup();
     info!("Conversion completed successfully! Enjoy!");
+}
+
+fn cleanup() {
+    std::fs::remove_dir("original_frames").unwrap();
+    std::fs::remove_dir("out_frames").unwrap();
 }
 
 fn calculate_frame_count(fps: f32, framecount: usize, target_framerate: f32) -> u32 {
@@ -159,5 +165,6 @@ fn install_dain() {
     info!("dain.zip downloaded. Extracting...");
     let mut zip = zip::read::ZipArchive::new(&buffer).unwrap();
     zip.extract(".").unwrap();
+    std::fs::remove_file("dain.zip");
     std::fs::rename(filename, "dain").unwrap();
 }
