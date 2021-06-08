@@ -1,4 +1,6 @@
 use log::{debug, error, info};
+use pretty_env_logger::env_logger::Builder;
+use pretty_env_logger::env_logger::Env;
 use std::io::Write;
 use std::time::Instant;
 //TODO: Implement audio support
@@ -8,19 +10,24 @@ use std::time::Instant;
 #[tokio::main]
 async fn main() {
     let mut args = std::env::args();
-    pretty_env_logger::init();
+    // pretty_env_logger::init();
+    Builder::from_env(Env::default().default_filter_or("info")).init();
     if args.len() < 5 {
-        eprintln!(
-            "Wrong number of arguments!\n{} <input_video> <target_framerate> <output_video> <framework>\nframework can be either `rife` or `dain`\nRife: Fast framework, but it can only double the framerate\nDAIN: Very slow model, but it can set custom framerate",
+        error!(
+            "Wrong number of arguments!\n{} <input_video> <output_video> <framework> [<target_framerate>]\nframework can be either `rife` or `dain`\nRife: Fast framework, but it can only double the framerate\nDAIN: Very slow model, but it can set custom framerate\ntarget_framerate: Only respected in DAIN, RIFE only does 2x on current framerate.\nIf not specified for DAIN, it defaults to 60.0",
             args.next().unwrap()
         );
         return;
     }
     let _program_call = args.next().unwrap();
     let input_video = args.next().unwrap();
-    let target_framerate = args.next().unwrap().parse::<f32>().unwrap();
     let output_video = args.next().unwrap();
     let framework = args.next().unwrap();
+    let target_framerate = args
+        .next()
+        .unwrap_or("60.0".to_owned())
+        .parse::<f32>()
+        .unwrap();
     let time = Instant::now();
     match framework.as_str() {
         "dain" => {
