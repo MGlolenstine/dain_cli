@@ -12,7 +12,7 @@ async fn main() {
     let mut args = std::env::args();
     // pretty_env_logger::init();
     Builder::from_env(Env::default().default_filter_or("info")).init();
-    if args.len() < 5 {
+    if args.len() < 4 {
         error!(
             "Wrong number of arguments!\n{} <input_video> <output_video> <framework> [<target_framerate>]\nframework can be either `rife` or `dain`\nRife: Fast framework, but it can only double the framerate\nDAIN: Very slow model, but it can set custom framerate\ntarget_framerate: Only respected in DAIN, RIFE only does 2x on current framerate.\nIf not specified for DAIN, it defaults to 60.0",
             args.next().unwrap()
@@ -54,7 +54,7 @@ async fn main() {
     info!("Turning video into frames");
     let original_frame_count = video_into_frames(&input_video).unwrap();
     info!("Original frame count is: {}", original_frame_count);
-    let new_frame_count = calculate_frame_count(fps, original_frame_count, target_framerate);
+    let new_frame_count = calculate_frame_count(fps, original_frame_count, target_framerate, &framework);
     info!("New frame count is: {}", new_frame_count);
     match framework.as_str() {
         "dain" => {
@@ -107,9 +107,15 @@ fn cleanup() {
     std::fs::remove_dir_all("out_frames").unwrap();
 }
 
-fn calculate_frame_count(fps: f32, framecount: usize, target_framerate: f32) -> u32 {
-    let framecount = framecount as f32;
-    ((framecount / fps) * target_framerate).round() as u32
+fn calculate_frame_count(fps: f32, framecount: usize, target_framerate: f32, framework: &str) -> u32 {
+    match framework.as_str() {
+        "dain" => {
+            let framecount = framecount as f32;
+            ((framecount / fps) * target_framerate).round() as u32
+        },
+        "rife" => fps * 2.0,
+        _ => 0.0,
+    }
 }
 
 fn get_framerate(path: &str) -> Result<f32, Box<dyn std::error::Error>> {
