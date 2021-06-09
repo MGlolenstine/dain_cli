@@ -12,3 +12,4 @@ regex = "1.5.4"
 reqwest = {version = "0.11.3", features = ["blocking"]}
 tokio = {version = "1.6.1", features = ["full"]}
 zip = "0.5.13"
+linya = "0.2.0"

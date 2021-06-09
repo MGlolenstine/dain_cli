@@ -126,6 +126,7 @@ dependencies = [
 name = "dain-cli"
 version = "0.1.0"
 dependencies = [
+ "linya",
  "log",
  "pretty_env_logger",
  "regex",
@@ -435,6 +436,15 @@ name = "libc"
 version = "0.2.95"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "789da6d93f1b866ffe175afc5322a4d76c038605a1c3319bb57b06967ca98a36"
+
+[[package]]
+name = "linya"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "751b3c88843ff35cbe851ec7321ffd0b0f88035aba8cf4f75166e641cbc8e4ba"
+dependencies = [
+ "terminal_size",
+]
 
 [[package]]
 name = "lock_api"
@@ -915,6 +925,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2dfed899f0eb03f32ee8c6a0aabdb8a7949659e3466561fc0adf54e26d88c5f4"
 dependencies = [
  "winapi-util",
+]
+
+[[package]]
+name = "terminal_size"
+version = "0.1.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "633c1a546cee861a1a6d0dc69ebeca693bf4296661ba7852b9d21d159e0506df"
+dependencies = [
+ "libc",
+ "winapi",
 ]
 
 [[package]]

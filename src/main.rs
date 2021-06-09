@@ -1,8 +1,10 @@
+use linya::{Bar, Progress};
 use log::{debug, error, info};
 use pretty_env_logger::env_logger::Builder;
 use pretty_env_logger::env_logger::Env;
 use std::io::Write;
-use std::time::Instant;
+use std::time::{Duration, Instant};
+use tokio::select;
 //TODO: Implement audio support
 //TODO: Figure out what's up with the subtitles and multiple channels
 //TODO: Add option for chosing RIFE model
@@ -54,30 +56,71 @@ async fn main() {
     info!("Turning video into frames");
     let original_frame_count = video_into_frames(&input_video).unwrap();
     info!("Original frame count is: {}", original_frame_count);
-    let new_frame_count = calculate_frame_count(fps, original_frame_count, target_framerate, &framework);
+    let new_frame_count =
+        calculate_frame_count(fps, original_frame_count, target_framerate, &framework);
     info!("New frame count is: {}", new_frame_count);
     match framework.as_str() {
         "dain" => {
             info!("Running DAIN interpolator (This might take a bit)...");
-            if let Err(e) = dain_process_frames(new_frame_count) {
-                error!("{:#?}", e);
-                #[cfg(target_os = "windows")]
-                error!("Something went wrong while running DAIN!\nRun `dain/dain-ncnn-vulkan.exe -i original_frames -o out_frames` by hand to see the error!");
-                #[cfg(not(target_os = "windows"))]
-                error!("Something went wrong while running DAIN!\nRun `./dain/dain-ncnn-vulkan -i original_frames -o out_frames` by hand to see the error!");
-                return;
+            let (sender, mut receiver) = tokio::sync::mpsc::channel(8);
+            tokio::spawn(tokio::task::spawn_blocking(move || {
+                if let Err(e) = dain_process_frames(new_frame_count) {
+                    error!("{:#?}", e);
+                    #[cfg(target_os = "windows")]
+                    error!("Something went wrong while running DAIN!\nRun `dain/dain-ncnn-vulkan.exe -i original_frames -o out_frames` by hand to see the error!");
+                    #[cfg(not(target_os = "windows"))]
+                    error!("Something went wrong while running DAIN!\nRun `./dain/dain-ncnn-vulkan -i original_frames -o out_frames` by hand to see the error!");
+                    tokio::spawn(async move { sender.send(false).await });
+                    return;
+                }
+                tokio::spawn(async move { sender.send(true).await });
+            }));
+            let mut interval = tokio::time::interval(Duration::from_millis(100));
+            let mut progress = Progress::new();
+            let bar: Bar = progress.bar(new_frame_count as usize, "DAIN RENDER PROGRESS");
+            loop {
+                select! {
+                    _ = interval.tick() => {
+                        let amount = std::fs::read_dir("out_frames").unwrap().count();
+                        progress.set_and_draw(&bar, amount);
+                        // println!("Updating the progress bar. {}", progress_bar);
+                    },
+                    Some(_) = receiver.recv() => {
+                        break;
+                    }
+                }
             }
             info!("DAIN interpolator completed");
         }
         "rife" => {
             info!("Running RIFE interpolator (This might take a bit)...");
-            if let Err(e) = rife_process_frames(/*new_frame_count*/) {
-                error!("{:#?}", e);
-                #[cfg(target_os = "windows")]
-                error!("Something went wrong while running RIFE!\nRun `./rife/rife-ncnn-vulkan.exe -i original_frames -o out_frames` by hand to see the error!");
-                #[cfg(not(target_os = "windows"))]
-                error!("Something went wrong while running RIFE!\nRun `./rife/rife-ncnn-vulkan -i original_frames -o out_frames` by hand to see the error!");
-                return;
+            let (sender, mut receiver) = tokio::sync::mpsc::channel(8);
+            tokio::spawn(tokio::task::spawn_blocking(move || {
+                if let Err(e) = rife_process_frames(/*new_frame_count*/) {
+                    error!("{:#?}", e);
+                    #[cfg(target_os = "windows")]
+                    error!("Something went wrong while running RIFE!\nRun `./rife/rife-ncnn-vulkan.exe -i original_frames -o out_frames` by hand to see the error!");
+                    #[cfg(not(target_os = "windows"))]
+                    error!("Something went wrong while running RIFE!\nRun `./rife/rife-ncnn-vulkan -i original_frames -o out_frames` by hand to see the error!");
+                    tokio::spawn(async move{sender.send(false).await});
+                    return;
+                }
+                tokio::spawn(async move{sender.send(true).await});
+            }));
+            let mut interval = tokio::time::interval(Duration::from_millis(100));
+            let mut progress = Progress::new();
+            let bar: Bar = progress.bar(new_frame_count as usize, "RIFE RENDER PROGRESS");
+            loop {
+                select! {
+                    _ = interval.tick() => {
+                        let amount = std::fs::read_dir("out_frames").unwrap().count();
+                        progress.set_and_draw(&bar, amount);
+                        // println!("Updating the progress bar. {}", progress_bar);
+                    },
+                    Some(_) = receiver.recv() => {
+                        break;
+                    }
+                }
             }
             info!("RIFE interpolator completed");
         }
@@ -107,14 +150,19 @@ fn cleanup() {
     std::fs::remove_dir_all("out_frames").unwrap();
 }
 
-fn calculate_frame_count(fps: f32, framecount: usize, target_framerate: f32, framework: &str) -> u32 {
-    match framework.as_str() {
+fn calculate_frame_count(
+    fps: f32,
+    framecount: usize,
+    target_framerate: f32,
+    framework: &str,
+) -> u32 {
+    match framework {
         "dain" => {
             let framecount = framecount as f32;
             ((framecount / fps) * target_framerate).round() as u32
-        },
-        "rife" => fps * 2.0,
-        _ => 0.0,
+        }
+        "rife" => (fps * 2.0) as u32,
+        _ => 0u32,
     }
 }
 
@@ -131,7 +179,7 @@ fn get_framerate(path: &str) -> Result<f32, Box<dyn std::error::Error>> {
             let fps = fps.as_str().parse::<f32>()?;
             return Ok(fps);
         } else {
-            eprintln!("the following line doesn't contain fps: {:#?}", l);
+            error!("the following line doesn't contain fps: {:#?}", l);
         }
     }
     Ok(0.0)
@@ -224,7 +272,7 @@ async fn install_dain() {
     #[cfg(target_os = "linux")]
         let url = "https://github.com/nihui/dain-ncnn-vulkan/releases/download/20210210/dain-ncnn-vulkan-20210210-ubuntu.zip";
     #[cfg(target_os = "linux")]
-    let filename = "dain-ncnn-vulkan-20200210-ubuntu";
+    let filename = "dain-ncnn-vulkan-20210210-ubuntu";
     #[cfg(target_os = "macos")]
         let url = "https://github.com/nihui/dain-ncnn-vulkan/releases/download/20210210/dain-ncnn-vulkan-20210210-macos.zip";
     #[cfg(target_os = "macos")]
