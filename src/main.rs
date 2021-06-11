@@ -81,8 +81,10 @@ async fn main() {
             loop {
                 select! {
                     _ = interval.tick() => {
-                        let amount = std::fs::read_dir("out_frames").unwrap().count();
-                        progress.set_and_draw(&bar, amount);
+                        if let Ok(a) = std::fs::read_dir("out_frames"){
+                            let amount = a.count();
+                            progress.set_and_draw(&bar, amount);
+                        }
                         // println!("Updating the progress bar. {}", progress_bar);
                     },
                     Some(_) = receiver.recv() => {
@@ -113,8 +115,10 @@ async fn main() {
             loop {
                 select! {
                     _ = interval.tick() => {
-                        let amount = std::fs::read_dir("out_frames").unwrap().count();
-                        progress.set_and_draw(&bar, amount);
+                        if let Ok(a) = std::fs::read_dir("out_frames"){
+                            let amount = a.count();
+                            progress.set_and_draw(&bar, amount);
+                        }
                         // println!("Updating the progress bar. {}", progress_bar);
                     },
                     Some(_) = receiver.recv() => {
