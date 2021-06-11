@@ -24,7 +24,6 @@
             },
             "args": [
                 "original.mp4",
-                "60",
                 "output.mp4",
                 "rife"
             ],

@@ -102,10 +102,10 @@ async fn main() {
                     error!("Something went wrong while running RIFE!\nRun `./rife/rife-ncnn-vulkan.exe -i original_frames -o out_frames` by hand to see the error!");
                     #[cfg(not(target_os = "windows"))]
                     error!("Something went wrong while running RIFE!\nRun `./rife/rife-ncnn-vulkan -i original_frames -o out_frames` by hand to see the error!");
-                    tokio::spawn(async move{sender.send(false).await});
+                    tokio::spawn(async move { sender.send(false).await });
                     return;
                 }
-                tokio::spawn(async move{sender.send(true).await});
+                tokio::spawn(async move { sender.send(true).await });
             }));
             let mut interval = tokio::time::interval(Duration::from_millis(100));
             let mut progress = Progress::new();
@@ -161,7 +161,7 @@ fn calculate_frame_count(
             let framecount = framecount as f32;
             ((framecount / fps) * target_framerate).round() as u32
         }
-        "rife" => (fps * 2.0) as u32,
+        "rife" => (framecount as f32 * 2.0) as u32,
         _ => 0u32,
     }
 }
@@ -169,7 +169,8 @@ fn calculate_frame_count(
 fn get_framerate(path: &str) -> Result<f32, Box<dyn std::error::Error>> {
     let output = std::process::Command::new("ffprobe")
         .arg(path)
-        .output()?
+        .output()
+        .expect("FFMPEG probably not installed! ffprobe command missing.")
         .stderr;
     let data = String::from_utf8_lossy(&output);
     let r = regex::RegexBuilder::new(r#"([\d]+.[\d]+|[\d]+) fps"#).build()?;
@@ -191,7 +192,8 @@ fn video_into_frames(path: &str) -> Result<usize, Box<dyn std::error::Error>> {
     }
     let output = std::process::Command::new("ffmpeg")
         .args(&["-i", path, "original_frames/%08d.png"])
-        .output()?
+        .output()
+        .expect("FFMPEG probably not installed! ffmpeg command missing.")
         .stderr;
     let data = String::from_utf8_lossy(&output);
     debug!("FFMPEG Video -> Frames stderr:\n{:#?}", data);
@@ -209,7 +211,8 @@ fn frames_into_video(path: &str, target_framerate: f32) -> Result<(), Box<dyn st
             "libx264",
             path,
         ])
-        .output()?
+        .output()
+        .expect("FFMPEG probably not installed! ffmpeg command missing.")
         .stderr;
     let data = String::from_utf8_lossy(&output);
     debug!("FFMPEG Frames -> Video stderr:\n{:#?}", data);
@@ -233,7 +236,8 @@ fn dain_process_frames(new_frame_count: u32) -> Result<(), Box<dyn std::error::E
             "-n",
             &format!("{}", new_frame_count),
         ])
-        .output()?
+        .output()
+        .expect("This shouldn't have happened, but apparently DAIN is missing!")
         .stderr;
     let data = String::from_utf8_lossy(&output);
     debug!("DAIN Frames -> Frames stderr:\n{:#?}", data);
@@ -257,7 +261,8 @@ fn rife_process_frames(/*new_frame_count: u32*/) -> Result<(), Box<dyn std::erro
             // "-n",
             // &format!("{}", new_frame_count),
         ])
-        .output()?
+        .output()
+        .expect("This shouldn't have happened, but apparently DAIN is missing!")
         .stderr;
     let data = String::from_utf8_lossy(&output);
     debug!("RIFE Frames -> Frames stderr:\n{:#?}", data);
