@@ -70,4 +70,4 @@ FRAMEWORK|RATIO|
 DAIN|75x|
 RIFE|3.45x|
 
-Ratio being `render_time/video_size`
+Ratio being `render_time/video_length`
