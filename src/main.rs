@@ -1,10 +1,19 @@
-use linya::{Bar, Progress};
-use log::{debug, error, info};
-use pretty_env_logger::env_logger::Builder;
-use pretty_env_logger::env_logger::Env;
+use progressing::{
+    // Just handy names for the examples below
+    mapping::Bar,
+    // The underlying Trait
+    Baring,
+};
 use std::io::Write;
 use std::time::{Duration, Instant};
 use tokio::select;
+
+use tracing::{debug, error, info, Level};
+use tracing_subscriber;
+
+use anyhow::bail;
+use anyhow::Result;
+
 //TODO: Implement audio support
 //TODO: Figure out what's up with the subtitles and multiple channels
 //TODO: Add option for chosing RIFE model
@@ -13,7 +22,20 @@ use tokio::select;
 async fn main() {
     let mut args = std::env::args();
     // pretty_env_logger::init();
-    Builder::from_env(Env::default().default_filter_or("debug")).init();
+    // Builder::from_env(Env::default().default_filter_or("info")).init();
+    if let Ok(a) = std::env::var("RUST_LOG") {
+        let level = match a.to_lowercase().as_str() {
+            "error" => Level::ERROR,
+            "warn" => Level::WARN,
+            "info" => Level::INFO,
+            "debug" => Level::DEBUG,
+            "trace" => Level::TRACE,
+            _ => Level::INFO,
+        };
+        tracing_subscriber::fmt().with_max_level(level).init();
+    } else {
+        tracing_subscriber::fmt().with_max_level(Level::INFO).init();
+    }
     if args.len() < 4 {
         error!(
             "Wrong number of arguments!\n{} <input_video> <output_video> <framework> [<target_framerate>]\nframework can be either `rife` or `dain`\nRife: Fast framework, but it can only double the framerate\nDAIN: Very slow model, but it can set custom framerate\ntarget_framerate: Only respected in DAIN, RIFE only does 2x on current framerate.\nIf not specified for DAIN, it defaults to 60.0",
@@ -76,14 +98,16 @@ async fn main() {
                 tokio::spawn(async move { sender.send(true).await });
             }));
             let mut interval = tokio::time::interval(Duration::from_millis(100));
-            let mut progress = Progress::new();
-            let bar: Bar = progress.bar(new_frame_count as usize, "DAIN RENDER PROGRESS");
+            let mut progress = Bar::with_range(0, new_frame_count as usize).timed();
             loop {
                 select! {
                     _ = interval.tick() => {
                         if let Ok(a) = std::fs::read_dir("out_frames"){
                             let amount = a.count();
-                            progress.set_and_draw(&bar, amount);
+                            progress.set_len(20);
+                            progress.set(amount);
+                            print!("                    \r");
+                            print!("{}\r", progress);
                         }
                         // println!("Updating the progress bar. {}", progress_bar);
                     },
@@ -110,14 +134,16 @@ async fn main() {
                 tokio::spawn(async move { sender.send(true).await });
             }));
             let mut interval = tokio::time::interval(Duration::from_millis(100));
-            let mut progress = Progress::new();
-            let bar: Bar = progress.bar(new_frame_count as usize, "RIFE RENDER PROGRESS");
+            let mut progress = Bar::with_range(0, new_frame_count as usize).timed();
             loop {
                 select! {
                     _ = interval.tick() => {
                         if let Ok(a) = std::fs::read_dir("out_frames"){
                             let amount = a.count();
-                            progress.set_and_draw(&bar, amount);
+                            progress.set_len(20);
+                            progress.set(amount);
+                            print!("                    \r");
+                            print!("{}\r", progress);
                         }
                         // println!("Updating the progress bar. {}", progress_bar);
                     },
@@ -170,7 +196,7 @@ fn calculate_frame_count(
     }
 }
 
-fn get_framerate(path: &str) -> Result<f32, Box<dyn std::error::Error>> {
+fn get_framerate(path: &str) -> Result<f32> {
     let output = std::process::Command::new("ffprobe")
         .arg(path)
         .output()
@@ -184,18 +210,22 @@ fn get_framerate(path: &str) -> Result<f32, Box<dyn std::error::Error>> {
             let fps = fps.as_str().parse::<f32>()?;
             return Ok(fps);
         } else {
-            error!("the following line doesn't contain fps: {:#?}", l);
+            error!("The following line doesn't contain fps: {:#?}", l);
+            bail!("The following line doesn't contain fps: {:#?}", l)
         }
     }
     Ok(0.0)
 }
 
-async fn video_into_frames(path: &str) -> Result<usize, Box<dyn std::error::Error>> {
-    if !std::path::Path::new("original_frames").exists() {
-        std::fs::create_dir("original_frames")?;
+async fn video_into_frames(path: &str) -> Result<usize> {
+    if let Err(e) = if !std::path::Path::new("original_frames").exists() {
+        std::fs::create_dir("original_frames")
     } else {
-        std::fs::remove_dir_all("original_frames")?;
-        std::fs::create_dir("original_frames")?;
+        std::fs::remove_dir_all("original_frames")
+            .and_then(|_| std::fs::create_dir("original_frames"))
+    } {
+        error!("Unable to remove folder `original_frames`. Probably locked by another program.");
+        bail!("Unable to remove folder `original_frames`. {}", e)
     }
 
     let (sender, mut receiver) = tokio::sync::mpsc::channel(8);
@@ -207,21 +237,20 @@ async fn video_into_frames(path: &str) -> Result<usize, Box<dyn std::error::Erro
             .expect("FFMPEG probably not installed! ffmpeg command missing.")
             .stderr;
         let data = String::from_utf8_lossy(&output);
-        debug!("FFMPEG Video -> Frames stderr:\n{:#?}", data);
+        debug!("FFMPEG Video -> Frames stderr:\n{}", data);
         tokio::spawn(async move { sender.send(true).await });
     }));
     let mut interval = tokio::time::interval(Duration::from_millis(100));
-    let mut progress = Progress::new();
-    let bar: Bar = progress.bar(
-        get_original_number_of_frames(&path) as usize,
-        "FRAME EXTRACT PROGRESS",
-    );
+    let mut progress = Bar::with_range(0, get_original_number_of_frames(path)).timed();
     loop {
         select! {
             _ = interval.tick() => {
                 if let Ok(a) = std::fs::read_dir("original_frames"){
                     let amount = a.count();
-                    progress.set_and_draw(&bar, amount);
+                    progress.set_len(20);
+                    progress.set(amount);
+                    print!("                    \r");
+                    print!("{}\r", progress);
                 }
                 // println!("Updating the progress bar. {}", progress_bar);
             },
@@ -233,7 +262,7 @@ async fn video_into_frames(path: &str) -> Result<usize, Box<dyn std::error::Erro
     Ok(std::fs::read_dir("original_frames")?.count())
 }
 
-fn frames_into_video(path: &str, target_framerate: f32) -> Result<(), Box<dyn std::error::Error>> {
+fn frames_into_video(path: &str, target_framerate: f32) -> Result<()> {
     let output = std::process::Command::new("ffmpeg")
         .args(&[
             "-r",
@@ -243,21 +272,24 @@ fn frames_into_video(path: &str, target_framerate: f32) -> Result<(), Box<dyn st
             "-c:v",
             "libx264",
             path,
+            "-y",
         ])
         .output()
         .expect("FFMPEG probably not installed! ffmpeg command missing.")
         .stderr;
     let data = String::from_utf8_lossy(&output);
-    debug!("FFMPEG Frames -> Video stderr:\n{:#?}", data);
+    debug!("FFMPEG Frames -> Video stderr:\n{}", data);
     Ok(())
 }
 
-fn dain_process_frames(new_frame_count: u32) -> Result<(), Box<dyn std::error::Error>> {
-    if !std::path::Path::new("out_frames").exists() {
-        std::fs::create_dir("out_frames")?;
+fn dain_process_frames(new_frame_count: u32) -> Result<()> {
+    if let Err(e) = if !std::path::Path::new("out_frames").exists() {
+        std::fs::create_dir("out_frames")
     } else {
-        std::fs::remove_dir_all("out_frames")?;
-        std::fs::create_dir("out_frames")?;
+        std::fs::remove_dir_all("out_frames").and_then(|_| std::fs::create_dir("out_frames"))
+    } {
+        error!("Unable to remove folder `out_frames`. Probably locked by another program.");
+        bail!("Unable to remove folder `out_frames`. {}", e)
     }
     #[cfg(not(target_os = "windows"))]
     let command = "./dain/dain-ncnn-vulkan";
@@ -276,16 +308,18 @@ fn dain_process_frames(new_frame_count: u32) -> Result<(), Box<dyn std::error::E
         .expect("This shouldn't have happened, but apparently DAIN is missing!")
         .stderr;
     let data = String::from_utf8_lossy(&output);
-    debug!("DAIN Frames -> Frames stderr:\n{:#?}", data);
+    debug!("DAIN Frames -> Frames stderr:\n{}", data);
     Ok(())
 }
 
-fn rife_process_frames(/*new_frame_count: u32*/) -> Result<(), Box<dyn std::error::Error>> {
-    if !std::path::Path::new("out_frames").exists() {
-        std::fs::create_dir("out_frames")?;
+fn rife_process_frames(/*new_frame_count: u32*/) -> Result<()> {
+    if let Err(e) = if !std::path::Path::new("out_frames").exists() {
+        std::fs::create_dir("out_frames")
     } else {
-        std::fs::remove_dir_all("out_frames")?;
-        std::fs::create_dir("out_frames")?;
+        std::fs::remove_dir_all("out_frames").and_then(|_| std::fs::create_dir("out_frames"))
+    } {
+        error!("Unable to remove folder `out_frames`. Probably locked by another program.");
+        bail!("Unable to remove folder `out_frames`. {}", e)
     }
     #[cfg(not(target_os = "windows"))]
     let command = "./rife/rife-ncnn-vulkan";
@@ -304,7 +338,7 @@ fn rife_process_frames(/*new_frame_count: u32*/) -> Result<(), Box<dyn std::erro
         .expect("This shouldn't have happened, but apparently DAIN is missing!")
         .stderr;
     let data = String::from_utf8_lossy(&output);
-    debug!("RIFE Frames -> Frames stderr:\n{:#?}", data);
+    debug!("RIFE Frames -> Frames stderr:\n{}", data);
     Ok(())
 }
 
@@ -395,11 +429,9 @@ fn get_original_number_of_frames(path: &str) -> usize {
             .fold(String::new(), |all, item| { format!("{} {}", all, item) })
     );
     let output = std::process::Command::new("ffmpeg")
-        .args(&[
-            "-i", path, "-map", "0:v:0", "-c", "copy", "-f", "null", "tmp",
-        ])
+        .args(args)
         .output()
-        .expect("This shouldn't have happened, but apparently DAIN is missing!")
+        .expect("This shouldn't have happened, but apparently FFMPEG is missing!")
         .stderr;
     let data = String::from_utf8_lossy(&output);
     let frames = data.lines().nth_back(1).unwrap();
@@ -414,6 +446,7 @@ fn get_original_number_of_frames(path: &str) -> usize {
         .split(" fps")
         .nth(0)
         .unwrap()
+        .trim()
         .parse::<usize>()
         .unwrap();
     info!("Original framecount is {}", frames);

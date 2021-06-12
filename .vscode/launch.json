@@ -20,7 +20,7 @@
                 }
             },
             "env": {
-                "RUST_LOG": "info"
+                "RUST_LOG": "DEBUG"
             },
             "args": [
                 "original.mp4",
